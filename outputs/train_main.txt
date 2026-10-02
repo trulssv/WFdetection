@@ -1,0 +1,11 @@
+/home/truls-svensson/Documents/python_projects/WFclassification/experiments/train_lpd.py:166: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  rec = {"step": step, "loss": float(loss), **terms, "time": time.time() - t0}
+{"step": 500, "val_auc": 0.9185281926167768, "val_auc_baseline": 0.897457093966979, "val_D": 0.01827508839778602, "val_E": 12.119694590568542}
+{"step": 1000, "val_auc": 0.9176907358173718, "val_auc_baseline": 0.897457093966979, "val_D": 0.01490002020727843, "val_E": 7.67265260219574}
+{"step": 1500, "val_auc": 0.9176281779872186, "val_auc_baseline": 0.897457093966979, "val_D": 0.012876758526545018, "val_E": 7.445913195610046}
+{"step": 2000, "val_auc": 0.9096722928647769, "val_auc_baseline": 0.897457093966979, "val_D": 0.027928752591833472, "val_E": 9.369109272956848}
+{"step": 2500, "val_auc": 0.9139222828809758, "val_auc_baseline": 0.897457093966979, "val_D": 0.016768162488006055, "val_E": 6.140402138233185}
+{"step": 3000, "val_auc": 0.9157278814902916, "val_auc_baseline": 0.897457093966979, "val_D": 0.013233918696641922, "val_E": 7.392941772937775}
+{"step": 3500, "val_auc": 0.913419020615321, "val_auc_baseline": 0.897457093966979, "val_D": 0.012601274531334639, "val_E": 6.231966912746429}
+{"step": 4000, "val_auc": 0.9139182130061853, "val_auc_baseline": 0.897457093966979, "val_D": 0.012522741104476154, "val_E": 6.18662828207016}

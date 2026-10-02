@@ -573,7 +573,10 @@ is a single-scale version, adapted to the sinogram:
    (Theorem 4.2), a jump in $f$ becomes a square-root singularity
    $\propto(h(\varphi)-s)_+^{1/2}$ in $Rf$. The half-order ramp returns it to
    a jump-type (order 0) singularity, so coefficient magnitudes scale like
-   the contrast, up to a factor $\sqrt{\text{radius of curvature}}$.
+   the contrast. (Empirically, weighting the amplitude by
+   $\sqrt{\text{radius of curvature}}$, the factor in front of the square-root
+   singularity of $Rf$, does not improve the fit of Definition 5.4, so no
+   curvature correction is used.)
 2. A bank of anisotropic derivative-of-Gaussian kernels $K_{t_j}$:
    kernel $j$ differentiates along the conormal $(1,-t_j)$ and smooths along
    the tangent $(t_j,1)$ of a singular curve of slope $t_j$.
@@ -606,6 +609,11 @@ singular curves are curved (the error term above). Numerically
 (`SinogramAnalyzer.fibre_response`), the measured coefficient profiles along
 $t$ at true wavefront points match $r(\cdot,t_0)$ with median correlation
 $0.993$; the full width at half maximum is about 30 cells on a 96-cell grid.
+With the true amplitude field at 2-cell resolution, $\mathcal R_tCq$
+(Definition 5.4) reproduces $|My|$ of an ellipse with correlation 0.85 and a
+relative $\ell^1$ residual of 0.56 (zero model: 1). The same $q$ smeared
+along its tangent lines over 15 or 31 cells fits equally well (0.55, 0.56);
+only a 63-cell smear fits clearly worse (0.62) (`tests/test_lpd.py`).
 
 ### 5.3 The data term
 
@@ -620,7 +628,10 @@ the fibre is *known*:
 
 **Definition 5.4 (measurement model).** Let $q\ge0$ be an amplitude field on
 $X'$ (contrast times membership, Section 7.3), $v=Cq$, and
-$(\mathcal R_tv)(s,\varphi,t)=\sum_{t'}|r(t,t')|\,v(s,\varphi,t')$. We model
+$(\mathcal R_tv)(s,\varphi,t)=w^{-1}\sum_{t'}|r(t,t')|\,v(s,\varphi,t')$. The
+normalization $w=\sqrt{2\pi}\,\sigma_{\mathrm{cells}}$ is the width (in cells)
+of a curve resolved over $\sigma_{\mathrm{cells}}=2$ cells, so that $q=1$ on such
+a curve predicts a streak of unit height. We model
 $$|c|=\mathcal R_t\,C\,q+\varepsilon,\qquad\varepsilon\ \text{i.i.d. Laplace}(0,\kappa),$$
 with negative log-likelihood
 $D(q;c)=\kappa^{-1}\sum\bigl||c|-\mathcal R_tCq\bigr|$ (smoothed in the code;
@@ -628,13 +639,17 @@ $D(q;c)=\kappa^{-1}\sum\bigl||c|-\mathcal R_tCq\bigr|$ (smoothed in the code;
 
 Remarks. (a) Taking moduli loses the linearity of $M$: two singularities
 on the same ray with different $t$ interfere. The heavy-tailed noise model
-absorbs this and the curvature error. (b) The model is a deconvolution along
-the fibre with a wide, smooth kernel, so it is ill-conditioned. Explaining a
-streak with one point and explaining it with a smeared distribution along
-the tangent line fit almost equally well. The prior makes the choice:
-among all explanations, the Legendrian curve (the envelope, Corollary 4.5)
-has the least energy, since tangent-line segments are straight horizontal
-curves that pay length and endpoints. (c) A smooth background produces small
+absorbs this and the curvature error. (b) Compared with the mixture model,
+the forward model removes the gross ambiguity: mass spread over the whole
+tangent line no longer explains the data. But it is a deconvolution along
+the fibre with a wide, smooth kernel, so it is badly ill-conditioned.
+Smears narrower than the kernel width fit as well as the point (numbers
+above). **Within the fibre response, $t$ is determined by the prior, not by
+the data.** Among all explanations, the Legendrian curve (the envelope,
+Corollary 4.5) has the least energy, since tangent-line segments are
+straight horizontal curves that pay length and endpoints. Sharpening the
+data side, e.g. multi-scale analysis or curvature-adapted kernels, is open
+problem 2. (c) A smooth background produces small
 coefficients at fine scale (Theorem 5.1) and is not explained by $q$. This is
 tested by the smooth backgrounds in the synthetic training data.
 
@@ -783,7 +798,14 @@ resampling has moiré-like weights.
   of a curve blurred over two cells. The amplitude in the data term is
   $q=Jm$ with contrast $J\in(0,J_{\max}]$. The bound is necessary: with
   unbounded $J$ the network could send $a\to0$, $J\to\infty$ and make the
-  prior free, since $E$ is 1-homogeneous in $a$.
+  prior free, since $E$ is 1-homogeneous in $a$. Even with the bound,
+  $(J,m)$ is not identifiable from $q$: for a given amplitude, the prior
+  prefers the smallest $a$, so at the optimum $J=J_{\max}$ and
+  $m\approx\min(1,q/J_{\max})$. **The membership is therefore
+  contrast-weighted.** It ranks voxels correctly (ROC AUC is invariant under
+  monotone maps), but a fixed threshold detects weak edges less readily than
+  strong ones. With coefficients normalized to a unit 99.9% quantile we use
+  $J_{\max}=1$. A hierarchical prior on $J$ is open problem 3.
 * **Equivariance.** By Proposition 4.6, image rotations by multiples of
   $\pi/K$ act on the dual variables as cyclic shifts in $\varphi$, so the dual
   CNNs are exactly rotation equivariant. The primal CNNs are equivariant only
@@ -824,6 +846,15 @@ resampling has moiré-like weights.
 ---
 
 ## 9. Open problems
+
+**Status of the experiments (2026-10-02).** Trained by Proposition 7.2, the
+LPD improves the ROC AUC over the learning-free $C^{-1}c$ (0.914–0.923 vs
+0.897), but its output keeps the tangent-line streaks. On held-out phantoms
+the network's objective is about 3× lower than the objective at the ground
+truth. So the solver works, but the MAP of the present model is not the true
+wavefront set. The forward model of Definition 5.4 is the limiting factor:
+its residual at the truth is far above the noise. This makes problem 2 below
+(and an accurate model of interference along rays) the priority.
 
 1. **Sparse and limited angles.** The current analyzer needs dense angles.
    For sparse views, $t$ is not observable from a single projection at all,

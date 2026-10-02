@@ -107,9 +107,9 @@ def validate(model, val, fwd, disc, prior, lam, grid, C, path=None, amp=True):
             ax[1].set_title("true WF (hue = θ)")
             ax[2].imshow(orientation_rgb(u_base).transpose(1, 0, 2), origin="lower", extent=ext)
             ax[2].set_title(f"baseline $C^{{-1}}c$  AUC {base[-1]:.3f}")
-            ax[3].imshow(orientation_rgb(out["m"][0, 0].cpu().numpy(), vmax=1).transpose(1, 0, 2),
-                         origin="lower", extent=ext)
-            ax[3].set_title(f"LPD membership m  AUC {aucs[-1]:.3f}")
+            m_np = out["m"][0, 0].cpu().numpy()
+            ax[3].imshow(orientation_rgb(m_np).transpose(1, 0, 2), origin="lower", extent=ext)
+            ax[3].set_title(f"LPD m (max {m_np.max():.2f})  AUC {aucs[-1]:.3f}")
             for a in ax:
                 a.set_xticks([]), a.set_yticks([])
             fig.tight_layout()

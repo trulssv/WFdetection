@@ -36,7 +36,12 @@ def smooth_background(rng, n, n_bumps=4, amplitude=0.3):
         x0 = rng.uniform(-0.6, 0.6, 2)
         s = rng.uniform(0.25, 0.5)
         f += rng.uniform(-1, 1) * np.exp(-((X1 - x0[0])**2 + (X2 - x0[1])**2) / (2 * s**2))
-    return amplitude * f * (X1**2 + X2**2 < 0.9**2)
+    # smooth taper to zero outside the disk: a hard cut-off would be an
+    # (unlabelled) edge
+    r = np.sqrt(X1**2 + X2**2)
+    taper = np.clip((0.95 - r) / 0.25, 0, 1)
+    taper = taper**2 * (3 - 2 * taper)          # C^1 smoothstep
+    return amplitude * f * taper
 
 
 class SyntheticTomography:

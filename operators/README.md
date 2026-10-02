@@ -35,10 +35,36 @@ limited-angle data. There a WF point is observed only if its orientation
 $\theta$ is a measured or visible angle, and $t$ (position along the ray) is
 unobservable from a single view.
 
-**Fan beam** (walnut data) is not implemented yet. Every fan-beam measurement
-is a line, so the relation reduces to this one after composing with the
-explicit fan-to-parallel reparametrization $(\beta,u)\mapsto(s,\varphi)$ of
-line space and its cotangent lift.
+The theory is in [research/background.md](../research/background.md) §4:
+$C$ is a volume-preserving strict contactomorphism,
+$C^*(ds-t\,d\varphi)=\alpha$ (Prop. 4.4). Image rotations become
+$\varphi$-shifts (Prop. 4.6). With `double_cover=True` both sides use $2K$
+slices over $[0,2\pi)$ (used by the network).
+
+## `fan_beam.py`: fan-beam canonical relation and rebinning
+
+For the flat-detector fan beam (source $R_\beta(0,-R_s)$, detector point
+$R_\beta(u,R_d)$, $D=R_s+R_d$), ray $(\beta,u)$ is the line
+$(s,\varphi)=\Phi(\beta,u)=(R_s\sin\gamma,\ \beta-\gamma)$ with
+$\gamma=\arctan(u/D)$, traversed along $\omega^\perp(\varphi)$. So fan data
+are $g=\Phi^*Rf$, and the fan-beam canonical relation is the parallel one
+composed with the cotangent lift of $\Phi$ (Prop. 4.7). The fibre coordinate
+$t$ (position of the tangency point along the ray) is intrinsic to the ray.
+
+* `fan_to_line`, `line_to_fan` (both measurements of a line over a $2\pi$
+  scan), `reduce_line`, `fan_line_jacobian`;
+* `image_to_fan_wavefront(x, θ)`: the two fan-data WF points $(\beta,u,t)$
+  and the covector $D\Phi^T(1,-t)=(-t,\ s_u-t\varphi_u)$;
+* `FanBeamCanonicalRelation`: lifted image → lifted fan data on $(\beta,u,t)$
+  (trilinear sampling, periodic $\theta$; for even fields only);
+* `FanToParallel`: resamples a full-scan fan sinogram onto a parallel grid,
+  averaging the two measurements of each line. The walnut pipeline uses it
+  so that $M$ and $C$ can stay parallel-beam.
+
+Tested in `tests/test_fan_beam.py`: the line map agrees with ODL's ray
+geometry to $10^{-10}$; rebinning reproduces ODL parallel data to < 2%; a
+bump lands at the predicted $(\beta,u,t)$; and the predicted covector is
+normal to the singular curves of simulated fan data (median error < 5°).
 
 ## `microlocal.py`: $M$
 
@@ -55,7 +81,14 @@ lifted coefficients `(B,1,K,n,n)` on $(\varphi,s,t)$:
 4. the magnitude, bilinearly resampled to $(\varphi_k=\theta_k, s_i)$.
 
 `coefficient_noise_std(sigma)` estimates the per-filter coefficient std under
-white sinogram noise by Monte Carlo. The data term uses it as its noise model.
+white sinogram noise by Monte Carlo.
+
+`fibre_response()` returns the matrix $r(t_j,t')$: the response of kernel $j$
+to a straight jump with conormal $(1,-t')$ (Prop. 5.3). Its columns are the
+predicted coefficient profiles along $t$. They match the measured profiles at
+true wavefront points with median correlation 0.993 (FWHM ≈ 28 cells
+predicted vs. 33 measured, on a 96-cell grid). This is the blur that the
+forward-model data term deconvolves.
 
 **Resolution in $t$ is intrinsically poor.** The $t$-resolution is set by the
 kernels' orientation selectivity, roughly $1/$`aspect` in slope units, i.e.
@@ -65,8 +98,9 @@ error 0.03 cells; median |error| 0.55 cells within a ±8-cell window), but at
 fixed $(s,\varphi)$ the response is a long streak in $t$. Pulled back by
 $C^{-1}$, every edge point spreads along its own tangent line. This is
 inherent to local analysis: $t=dh/d\varphi$ is a derivative *along* the
-singular curve, so resolving it needs non-local consistency, which is the
-prior's job (see `loss/README.md`).
+singular curve (Cor. 4.5), so resolving it needs non-local consistency. The
+streak profile is known, though (`fibre_response`), which the data term
+exploits (`loss/README.md`).
 
 **Limitation:** the analyzer assumes dense angular sampling (several angles
 across each kernel). Sparse-view data will need a separate analyzer that
@@ -79,6 +113,8 @@ available) in a torch autograd function. Caveat: ODL's `op.adjoint` is the
 adjoint for *weighted* inner products ($w$ = cell volume), whereas autograd
 needs the matrix transpose $R^T=(w_X/w_Y)R^*$. The backward pass applies that
 factor, and `RayTransform.adjoint` returns the (weighted) $L^2$ adjoint $R^*$.
+ASTRA's GPU projectors are not an exactly matched pair (mismatch ~$10^{-3}$ of
+$\langle Rf,g\rangle$); `impl="astra_cpu"` is exact.
 It loops over batch elements through numpy, which is fine for data generation
 and baselines. `fbp(y)` gives an FBP reconstruction for the
 classical baseline.

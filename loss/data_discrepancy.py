@@ -36,19 +36,26 @@ import torch
 
 
 class MicrolocalForwardModel(torch.nn.Module):
-    """c_hat = R_t (C q): predicted coefficient magnitudes, shape (B, 1, K, n, n).
+    """c_hat = R_t (C q) / w: predicted coefficient magnitudes, shape (B, 1, K, n, n).
+
+    The sum over t' is divided by the width w = sqrt(2 pi) * blur_cells of a
+    curve resolved over ``blur_cells`` cells (the resolution of the network's
+    outputs), so that q = 1 on such a curve predicts a streak of unit height:
+    the amplitude q then has the units of |c|.
 
     Parameters
     ----------
     C : CanonicalRelation
     fibre_response : tensor (n_t, n_t)
         r[j, j'] from ``SinogramAnalyzer.fibre_response``; magnitudes are used.
+    blur_cells : float
     """
 
-    def __init__(self, C, fibre_response):
+    def __init__(self, C, fibre_response, blur_cells: float = 2.0):
         super().__init__()
         self.C = C
-        self.register_buffer("r", fibre_response.abs().float())
+        w = math.sqrt(2 * math.pi) * blur_cells
+        self.register_buffer("r", fibre_response.abs().float() / w)
 
     def forward(self, q):
         v = self.C(q)

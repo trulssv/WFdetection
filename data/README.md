@@ -31,10 +31,45 @@ truth for every check of the unsupervised method.
 Shapes must stay inside the unit disk, where the canonical relation operator
 is unitary.
 
-## Walnut data (planned)
+## `synthetic.py`: training data
 
-FIPS 2D walnut, fan-beam:
-<https://fips.fi/open-datasets/x-ray-tomographic-datasets/tomographic-x-ray-data-of-a-walnut/>.
-The loader will go in `walnut.py` once the fan-beam relation is implemented
-(milestone 4). Raw downloads belong in `data/raw/`, which should not be
-committed.
+`SyntheticTomography(grid, noise, background)` generates batches on the fly:
+a random phantom plus an optional smooth background (which has no wavefront
+set and checks that smooth structure is ignored; it is tapered to zero with
+a $C^1$ smoothstep, since a hard cut-off would be an unlabelled edge), the ODL parallel-beam
+projection (3n angles, 2n detector cells), relative Gaussian noise, and
+$c=My$ normalized per sample by its 99.9% quantile
+(`normalize_coefficients`). Training uses only `c`; `labels=True`
+additionally returns the lifted membership for validation.
+
+## `walnut.py`: FIPS walnut
+
+FIPS 2D walnut (Hämäläinen et al., arXiv:1502.04064), Zenodo record 1254206.
+Download into `data/raw/walnut/` (not committed):
+
+```bash
+mkdir -p data/raw/walnut && cd data/raw/walnut
+for f in FullSizeSinograms.mat GroundTruthReconstruction.mat Data82.mat Documentation_v1.pdf MD5SUMS; do
+  curl -sL -o $f "https://zenodo.org/api/records/1254206/files/$f/content"; done
+md5sum -c MD5SUMS 2>/dev/null | grep -v FAILED   # (Data164/328 are not needed)
+```
+
+* `load_walnut(n_proj=1200|120, det_binning)`: log-attenuation fan sinogram
+  `[projection, detector]`, with $I_0$ estimated from the air columns, plus
+  the matching ODL fan geometry in normalized units. Lengths are divided by
+  the half-width $L=21.03$ mm of the dataset's field of view, so the
+  sinogram equals $Rf$ for $f=L\mu$.
+* `walnut_geometry(n_proj, n_det)`: source–origin 110 mm, source–detector
+  300 mm, 2296 pixels of 0.05 mm, full $2\pi$ scan with angles
+  $\beta_k=2\pi k/n_{\text{proj}}$.
+* `load_reference(n)`: the dataset's FBP of 1200 projections, block-averaged,
+  in ODL orientation.
+
+**Calibration.** The rotation direction, start angle, detector order and
+image orientation were determined by matching the ODL projection of a test
+image with the dataset's own system matrix $A$ (Data82.mat). The best match
+has correlation 0.9999 and scale 21.07 mm/unit ≈ $L$
+(`tests/test_walnut.py`). Result: ODL's counter-clockwise $\beta$ from 0,
+detector not flipped, and ODL array = transpose of the MATLAB image. Show
+walnut images with `imshow(f.T, origin="upper")` to match the dataset's
+figures.

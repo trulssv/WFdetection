@@ -49,7 +49,7 @@ def reference_line_density(grid: LiftedGrid, cells: float = 2.0) -> float:
 
 class LiftedLPD(nn.Module):
     def __init__(self, grid: LiftedGrid, n_iter=5, n_primal=6, n_dual=6, hidden=24,
-                 J_max=2.0, use_checkpoint=True):
+                 J_max=1.0, use_checkpoint=True):
         super().__init__()
         self.grid, self.n_iter = grid, n_iter
         self.n_primal, self.n_dual = n_primal, n_dual

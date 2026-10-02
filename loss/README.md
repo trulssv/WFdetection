@@ -1,10 +1,19 @@
 # loss/
 
-Training objective $D(Cu;\,My)+\lambda\,\mathcal R(u)$: an unsupervised data
-term and a curve prior on the lifted wavefront set. In the Bayesian reading
-both are negative log-densities, so minimizing their sum is MAP estimation.
+Training objective $D(\mathcal R_tC(Jm);\,My)+\lambda E(a,b,c)$: an
+unsupervised data term and a curve prior on the lifted wavefront set. Both
+are negative log-densities, so minimizing their sum is MAP estimation, and
+minimizing its expectation over data trains an amortized MAP solver
+([research/background.md](../research/background.md), Prop. 7.2). The theory
+behind everything below is in §3 (prior), §5 (data term) and §6
+(discretization) of that document.
 
 ## `regularization.py`: curve prior `CurvePrior`
+
+`CurvePrior(grid, xi, nu, zeta)` computes $E(T)=\mathbf M_g(T)+\nu\,\mathbf M(\partial T)$:
+`mass(a, b, c)` is the length in the metric $g_{\xi,\zeta}$, and
+`boundary_mass(a, b, c)` $=\int|\operatorname{div}\tau|$ counts endpoints.
+`forward` returns $E$, the negative log-prior up to a constant.
 
 The WF set is a 1-current $\tau=aX_1+cX_2+bX_3$ on $X$, with
 
@@ -79,9 +88,9 @@ $(\zeta^2-1)\sigma_\theta^2/2$ (≈ 3% at the default $\zeta=2$, 2-cell blur).
   but the closed lifted curve only uses the arc of the exterior angle. The
   rest of the fibre is a weaker singularity (Fourier decay one order faster),
   and the prior will tend to suppress it.
-* The network will have to output $(a,b,c)$, or a membership $u$ together with
-  turning and normal channels. The mapping from a soft membership in $[0,1]$
-  to a line density $a$ is a design decision for milestone 2.
+* The network outputs $(a,b,c)$ directly, with $a\ge0$; the classifier output
+  is $m=1-e^{-a/a_{\mathrm{ref}}}$ (`models/README.md`). Positivity of $a$ is
+  what makes the per-component lower bound of Theorem 3.9 hold.
 
 Validated in `tests/test_regularization.py` ($96^2\times48$ grid):
 
@@ -91,7 +100,34 @@ Validated in `tests/test_regularization.py` ($96^2\times48$ grid):
   square without corner arcs ≈ 8;
 * dropping $c$ increases the closed-curve endpoint mass more than 5×.
 
-## `data_discrepancy.py`: `MixtureLikelihood`
+## `data_discrepancy.py`
+
+### `MicrolocalForwardModel` + `ForwardModelDiscrepancy` (default)
+
+Measurement model (Def. 5.4): $|c|=\mathcal R_tCq+\varepsilon$ with Laplace
+noise, $q=J\,m\ge0$ the amplitude on the lifted image, and $\mathcal R_t$ the
+known fibre response (`SinogramAnalyzer.fibre_response`, Prop. 5.3).
+`MicrolocalForwardModel(C, r)(q)` returns $\hat c=\mathcal R_tCq$, normalized
+so that $q=1$ on a curve resolved over 2 cells predicts a unit-height streak.
+(Without the normalization the sum over the tube in $t$ made $m\approx0.1$
+sufficient to explain full-strength edges.) `ForwardModelDiscrepancy()(ĉ, c)`
+returns the smoothed mean absolute residual.
+
+A single wavefront point now explains its whole streak along $t$, so mass
+spread over whole tangent lines no longer fits (unlike in the mixture model
+below). But the deconvolution along the fibre is badly ill-conditioned:
+smears narrower than the fibre response (~30 cells) fit as well as the true
+point (`tests/test_lpd.py`). Within that width, $t$ is determined by the
+prior (the envelope of the tangent lines is the cheapest explanation,
+Cor. 4.5).
+
+**Weighting.** $D$ is a mean over all lifted voxels, whereas $E$ is an
+integral (≈ curve length). Explaining an edge of unit length lowers $D$ by
+only ~$10^{-3}$ (the edge's streaks cover a small fraction of the voxels). So
+λ must be of order $10^{-4}$–$10^{-3}$. With λ = 0.01 the network collapsed to
+$m\equiv0$ within 250 steps.
+
+### `MixtureLikelihood` (baseline)
 
 $$D(v;c)=-\operatorname{mean}\log\big(v\,p_1(|c|)+(1-v)\,p_0(|c|)\big),\qquad v=Cu,\ c=My.$$
 
@@ -120,7 +156,7 @@ contact condition $t=dh/d\varphi$ along the singular curve $s=h(\varphi)$. So $p
 weight of $D$ and $\mathcal R$ (and the endpoint cost of tangent streaks)
 matters.
 
-**Open design questions** (milestone 2): multi-scale coefficients and decay
-ratios to separate edges from texture; a Poisson or log-transform noise model
-for real data; angle-split self-supervision (predict from angle subset A,
-evaluate $D$ on subset B), which forces the network to use the prior.
+**Open design questions**: multi-scale coefficients and decay ratios to
+separate edges from texture; a Poisson or log-transform noise model for real
+data; angle-split self-supervision (predict from angle subset A, evaluate $D$
+on subset B). See §9 of the background document.

@@ -1,0 +1,7 @@
+/home/truls-svensson/Documents/python_projects/WFclassification/experiments/train_lpd.py:166: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  rec = {"step": step, "loss": float(loss), **terms, "time": time.time() - t0}
+{"step": 200, "val_auc": 0.8944376341867251, "val_auc_baseline": 0.8968990195333677, "val_D": 0.037559566320851445, "val_E": 24.33584952354431}
+{"step": 400, "val_auc": 0.9126280791705903, "val_auc_baseline": 0.8968990195333677, "val_D": 0.019631818518973887, "val_E": 10.637572407722473}
+{"step": 600, "val_auc": 0.9220017701185536, "val_auc_baseline": 0.8968990195333677, "val_D": 0.01704296108800918, "val_E": 5.841052293777466}
+{"step": 800, "val_auc": 0.9230437739214586, "val_auc_baseline": 0.8968990195333677, "val_D": 0.016245492035523057, "val_E": 5.035921931266785}

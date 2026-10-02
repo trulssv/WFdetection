@@ -77,11 +77,17 @@ def main():
 
     M = SinogramAnalyzer(grid, phis, s).to(dev)
     C = CanonicalRelation(grid).to(dev)
+    # Lines with |s| > s_fov are not measured: the truncation is a jump in y
+    # and would show up as a spurious wavefront set on the circle |x| = s_fov.
+    s_fov = fan.src_radius * math.sin(math.atan(us.max() / (fan.src_radius + fan.det_radius)))
+    margin = 3 * M.sigma_t + 2 * grid.h
+    s_lift = grid.coords_torch(device=dev)
+    fov = (s_lift.abs() < s_fov - margin).float().view(1, 1, 1, -1, 1)
     with torch.no_grad():
-        c = normalize_coefficients(M(y))
+        c = normalize_coefficients(M(y) * fov)
         base = C.inverse(c)[0, 0].cpu().numpy()
 
-    results = {"n": n, "n_theta": K}
+    results = {"n": n, "n_theta": K, "s_fov": s_fov}
     m = None
     if cfg is not None:
         model = LiftedLPD(grid, n_iter=cfg["n_iter"], hidden=cfg["hidden"]).to(dev)
