@@ -1,0 +1,19 @@
+[project]
+name = "wfclassification"
+version = "0.1.0"
+description = "Unsupervised indirect wavefront-set detection from tomographic data"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "numpy",
+    "scipy",
+    "torch",
+    "odl>=1.0",
+    "astra-toolbox",
+    "matplotlib",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+# ODL 1.0 registers a pytest plugin that is incompatible with pytest >= 9
+addopts = "-p no:odl_plugins"

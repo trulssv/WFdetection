@@ -1,0 +1,19 @@
+{
+  "n": 96,
+  "n_theta": 32,
+  "noise": 0.01,
+  "background": 0.3,
+  "steps": 800,
+  "batch": 2,
+  "lr": 0.001,
+  "lam": 0.0001,
+  "xi": 0.1,
+  "nu": 0.5,
+  "zeta": 2.0,
+  "n_iter": 5,
+  "hidden": 24,
+  "val_every": 200,
+  "val_size": 8,
+  "seed": 0,
+  "no_amp": false
+}

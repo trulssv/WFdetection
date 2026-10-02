@@ -1,0 +1,16 @@
+{
+  "noise_sigma": 0.011531569957733155,
+  "t_localization_median_abs_error_cells": 0.5469152188650668,
+  "t_localization_mean_error_cells": 0.02761062074432044,
+  "t_global_hit_rate": 0.8129251700680272,
+  "auc_sinogram_side_coefficients": 0.8364618974675496,
+  "auc_image_side_pulled_back_coefficients": 0.8494503216397679,
+  "auc_image_side_pulled_back_posterior": 0.7262573715874834,
+  "posterior_fraction_above_0.5_image_side": 0.6302089691162109,
+  "prior_length_term_zeta1": 10.404996780240475,
+  "prior_length_analytic": 10.736051733225162,
+  "prior_endpoints_closed_curves": 1.2238258371076862,
+  "prior_endpoints_closed_curves_without_c": 15.088766257898847,
+  "prior_endpoints_without_corner_arcs": 15.041132601476171,
+  "expected_endpoints_without_corner_arcs": 14
+}
