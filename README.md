@@ -33,9 +33,10 @@ LPD network: dual on (φ,s,t)  ⇄ C, C⁻¹ ⇄  primal on (θ,x)       │
 | $C$ | canonical relation $(x,\theta)\mapsto(x\cdot\omega,\theta,x\cdot\omega^\perp)$; $C^*(ds-t\,d\varphi)=\alpha$ | [operators/canonical_relation.py](operators/canonical_relation.py) |
 | $C_{\mathrm{fan}}$, rebinning | fan beam = parallel beam in other line coordinates | [operators/fan_beam.py](operators/fan_beam.py) |
 | $M$, $r(t,t')$ | directional filter bank on the sinogram, and its fibre response | [operators/microlocal.py](operators/microlocal.py) |
+| $W\,\mathrm{FBP}$, $b$ | full-aperture analyzer: oriented filters on the FBP, local in $x$ | [operators/image_analyzer.py](operators/image_analyzer.py) |
 | $R$ | ODL/ASTRA ray transform as a torch module | [operators/radon.py](operators/radon.py) |
 | $E$ | curve prior: mass + boundary mass of the current | [loss/regularization.py](loss/regularization.py) |
-| $D$ | Laplace forward-model data term (and the mixture baseline) | [loss/data_discrepancy.py](loss/data_discrepancy.py) |
+| $D$ | Laplace forward-model data terms on $b$ (default) and on $c$, and the mixture baseline | [loss/data_discrepancy.py](loss/data_discrepancy.py) |
 | LPD | learned primal–dual on the double covers | [models/lpd.py](models/lpd.py) |
 
 ## Repository layout
@@ -63,8 +64,13 @@ need a CUDA ≥ 12.8 build of torch:
 conda create -n wfc python=3.12
 conda activate wfc
 pip install torch --index-url https://download.pytorch.org/whl/cu128
-pip install odl astra-toolbox matplotlib scipy scikit-image pytest
+pip install odl astra-toolbox matplotlib scipy scikit-image pytest tqdm
 ```
+
+On the 4× RTX 6000 Ada workstation (sm_89, so CUDA 12.1 torch builds work),
+the existing `regandrecon` env (Python 3.12, torch 2.5.1+cu121, ODL 1.0b1)
+works after `conda install -n regandrecon -c astra-toolbox -c nvidia astra-toolbox`.
+Parallel sweeps, one run per GPU: `experiments/sweep.sh`.
 
 For the walnut data, see [data/README.md](data/README.md) (about 27 MB from
 Zenodo). Run everything from the repository root:

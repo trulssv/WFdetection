@@ -10,6 +10,7 @@ dependencies = [
     "odl>=1.0",
     "astra-toolbox",
     "matplotlib",
+    "tqdm",
 ]
 
 [tool.pytest.ini_options]

@@ -102,7 +102,32 @@ Validated in `tests/test_regularization.py` ($96^2\times48$ grid):
 
 ## `data_discrepancy.py`
 
-### `MicrolocalForwardModel` + `ForwardModelDiscrepancy` (default)
+### `OrientedEdgeForwardModel` + `ForwardModelDiscrepancy` (default)
+
+This term uses the same Laplace model, but on the full-aperture image-side
+coefficients $b=|W\,\mathrm{FBP}\,y|$ (`operators/image_analyzer.py`):
+$$b=G_x*\big(|r|\circledast_\theta q\big)+\varepsilon,$$
+where $r$ is the analyzer's angular response, applied as a circular
+convolution in $\theta$, and $G_x$ is a Gaussian of std
+$\sqrt{\max(\sigma^2-2^2,0)}$ cells (zero at the default $\sigma=1.5$, since
+$q$ is already resolved over 2 cells). The normalization is the same: $q=1$
+on a straight curve resolved over 2 cells predicts unit height.
+
+**The point is that the model is local in $x$.** Interference only happens
+between edges closer than about $\sigma$, instead of between all
+singularities on a ray, and a streak along a tangent line no longer explains
+the data. Smearing the true $q$ along its tangent lines over 31 cells
+triples the residual (0.28 → 0.84, `tests/test_image_analyzer.py`). For the
+sinogram model below, the same smear is indistinguishable from the truth.
+On the validation phantoms, the sinogram data term at the ground truth
+(0.055) is *worse* than at the main network's streaky output (0.013) and
+than at a 31-cell smear of the truth (0.054). So under that term no λ could
+make the truth the MAP.
+
+`experiments/train_lpd.py --data-term {image,sinogram,both}` selects the
+term (`both` = image + μ·sinogram).
+
+### `MicrolocalForwardModel` + `ForwardModelDiscrepancy` (sinogram side)
 
 Measurement model (Def. 5.4): $|c|=\mathcal R_tCq+\varepsilon$ with Laplace
 noise, $q=J\,m\ge0$ the amplitude on the lifted image, and $\mathcal R_t$ the

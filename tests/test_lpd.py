@@ -18,10 +18,20 @@ def test_outputs_and_constraints():
     model = LiftedLPD(grid, n_iter=2, hidden=8).eval()
     with torch.no_grad():
         out = model(torch.rand(2, 1, *grid.shape))
-    for k in "abcJm":
+    assert "J" not in out
+    for k in "abcqm":
         assert out[k].shape == (2, 1, *grid.shape)
     assert (out["a"] >= 0).all() and (out["m"] >= 0).all() and (out["m"] < 1).all()
+    torch.testing.assert_close(out["q"], out["a"] / model.a_ref)
+
+
+def test_legacy_contrast():
+    grid = LiftedGrid(32, 8)
+    model = LiftedLPD(grid, n_iter=2, hidden=8, J_max=2.0, contrast=True).eval()
+    with torch.no_grad():
+        out = model(torch.rand(2, 1, *grid.shape))
     assert (out["J"] > 0).all() and (out["J"] <= model.J_max).all()
+    torch.testing.assert_close(out["q"], out["J"] * out["m"])
 
 
 def test_antipodal_projections():
@@ -92,3 +102,18 @@ def test_forward_model_explains_coefficients():
     assert r_true < 0.65                              # measured 0.56 (zero model: 1)
     assert abs(residual(smear(15)) - r_true) < 0.03   # narrow smear: indistinguishable
     assert residual(smear(63)) > r_true + 0.03        # wide smear: worse
+
+
+def test_intermediates():
+    grid = LiftedGrid(16, 4)
+    model = LiftedLPD(grid, n_iter=3, hidden=4, image_input=True).eval()
+    c, b = torch.rand(2, 1, *grid.shape), torch.rand(2, 1, *grid.shape)
+    with torch.no_grad():
+        out = model(c, b, return_intermediates=True)
+        plain = model(c, b)
+    assert len(out["primal"]) == len(out["dual"]) == len(out["readouts"]) == 3
+    assert out["primal"][0].shape == (2, model.n_primal, 8, 16, 16)
+    assert out["dual"][0].shape == (2, model.n_dual, 8, 16, 16)
+    for k in "abcqm":
+        torch.testing.assert_close(out["readouts"][-1][k], plain[k])
+        torch.testing.assert_close(out[k], plain[k])

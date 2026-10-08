@@ -4,8 +4,9 @@ Each sample is a random cartoon phantom (``data.phantoms.random_phantom``),
 optionally plus a smooth background (which has no wavefront set and tests
 that the analyzer and the network ignore smooth structure), projected with
 the ODL parallel-beam ray transform, corrupted by Gaussian noise and analyzed
-by M.  Training uses only the coefficients; the lifted wavefront-set
-membership is returned for validation only.
+by M (sinogram side, c) and by the full-aperture analyzer W FBP (image side,
+b).  Training uses only the coefficients; the lifted wavefront-set membership
+(soft) and the rasterized thin wavefront set are returned for validation only.
 """
 
 import math
@@ -14,8 +15,10 @@ import numpy as np
 import torch
 
 from data.phantoms import lifted_membership, random_phantom
+from evaluation.ridges import rasterize
 from geometry.lifted import LiftedGrid
 from geometry.tomo import image_space, parallel_geometry, sinogram_axes
+from operators.image_analyzer import ImageDomainAnalyzer
 from operators.microlocal import SinogramAnalyzer
 from operators.radon import RayTransform
 
@@ -53,16 +56,18 @@ class SyntheticTomography:
     n_angles, n_det : sinogram size (dense angles over [0, pi))
     noise : sinogram noise std relative to max |y| of each sample
     background : amplitude of the smooth background (0 to disable)
+    sigma_cells, aspect, detrend : parameters of the image-side analyzer
     """
 
     def __init__(self, grid: LiftedGrid, n_angles=None, n_det=None, noise=0.01,
-                 background=0.3, device="cpu"):
+                 background=0.3, device="cpu", sigma_cells=1.5, aspect=2.0, detrend=0.0):
         n = grid.n
         self.grid, self.noise, self.background, self.device = grid, noise, background, device
         self.geometry = parallel_geometry(n_angles or 3 * n, n_det or 2 * n)
         self.R = RayTransform(image_space(n), self.geometry)
         phis, s = sinogram_axes(self.geometry)
         self.M = SinogramAnalyzer(grid, phis, s).to(device)
+        self.A = ImageDomainAnalyzer(grid, sigma_cells, aspect, detrend).to(device)
 
     def sample(self, rng: np.random.Generator, batch: int, labels: bool = False) -> dict:
         n = self.grid.n
@@ -75,9 +80,12 @@ class SyntheticTomography:
         y = y + sig * torch.randn(y.shape, generator=None, device=self.device)
         with torch.no_grad():
             c = normalize_coefficients(self.M(y))
-        out = {"c": c, "y": y, "f": f}
+            b = normalize_coefficients(self.A(self.R.fbp(y)))
+        out = {"c": c, "b": b, "y": y, "f": f}
         if labels:
             m = np.stack([lifted_membership(self.grid, p.samples(self.grid.h / 2, "full"))
                           for p in phantoms])
             out["membership"] = torch.as_tensor(m, dtype=torch.float32)[:, None]
+            thin = np.stack([rasterize(self.grid, p.samples(self.grid.h / 4, "full")) for p in phantoms])
+            out["wf_thin"] = torch.as_tensor(thin)[:, None]
         return out

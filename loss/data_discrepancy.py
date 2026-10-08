@@ -20,6 +20,17 @@ Explaining a streak along t with one point is then the cheapest option; the
 tangent-line ambiguity becomes a (badly conditioned) deconvolution along the
 fibre, which the curve prior regularizes.
 
+``OrientedEdgeForwardModel`` (full aperture).  The same Laplace term on the
+lifted *image* coefficients b = |W FBP y| (``operators/image_analyzer.py``),
+predicted by a local model
+
+    b(x, theta)  =  G_x * sum_theta' |r(theta, theta')| q(x, theta')  +  noise,
+
+with r the angular response of the oriented filter bank and G_x a small
+spatial blur.  The response of an edge is local in x, so a streak along a
+tangent line does not explain b: the data term itself fixes t, which the
+fibre response leaves to the prior.
+
 ``MixtureLikelihood`` (baseline).  Treats every coefficient independently as
 noise or edge,
 
@@ -33,6 +44,7 @@ edge (63% of the image in milestone 1).  Kept for comparison.
 import math
 
 import torch
+import torch.nn.functional as F
 
 
 class MicrolocalForwardModel(torch.nn.Module):
@@ -60,6 +72,97 @@ class MicrolocalForwardModel(torch.nn.Module):
     def forward(self, q):
         v = self.C(q)
         return torch.einsum("...k,jk->...j", v, self.r.to(v.dtype))
+
+
+class OrientedEdgeForwardModel(torch.nn.Module):
+    """b_hat = G_x * (r (*)_theta q) / w: predicted image-side coefficient
+    magnitudes, shape (B, 1, K, n, n) on (theta, x1, x2).
+
+    A sharp edge of contrast J gives b = J |r(theta, theta_e)| exp(-d^2 / 2 sigma^2),
+    where sigma (``sigma_cells``) is the width of an edge in b: the kernel width
+    combined with the blur of the FBP (about 2.6 cells for the default kernel
+    sigma = 1.5 and a Hann-filtered FBP; with the kernel width alone, the
+    network has to widen q to fit the edges).  The network's amplitude q is resolved over
+    ``blur_cells`` cells in x and theta, so G_x is a Gaussian of std
+    sqrt(max(sigma^2 - blur^2, 0)) cells, and w is fixed numerically such that
+    q = 1 on a straight curve resolved over ``blur_cells`` predicts unit height:
+    q then has the units of b.
+
+    Parameters
+    ----------
+    grid : LiftedGrid
+    angular_response : tensor (K, K)
+        r[k, k'] from ``ImageDomainAnalyzer.angular_response``; magnitudes are used.
+    sigma_cells : float
+        Width of an edge in b, in cells (see above).
+    blur_cells : float
+    sigma_coarse : float, optional
+        Coarse scale of a detrended analyzer (``ImageDomainAnalyzer.sigma_coarse``).
+        The signed normal profile of an edge is then
+        N(d; sigma) - N(d; sigma_coarse): the prediction is
+        |v - G_k * v| with v the theta-blurred q and G_k a normalized Gaussian of
+        std sqrt(sigma_coarse^2 - blur^2) along the normal omega(theta_k).
+    """
+
+    def __init__(self, grid, angular_response, sigma_cells: float, blur_cells: float = 2.0,
+                 sigma_coarse: float = None):
+        super().__init__()
+        self.register_buffer("r", angular_response.abs().float())
+        if not sigma_coarse:
+            self.coarse = None
+        else:
+            sc = math.sqrt(max(sigma_coarse**2 - blur_cells**2, 1.0))
+            rad = math.ceil(3 * sc)
+            o = torch.arange(-rad, rad + 1, dtype=torch.float64)
+            D1, D2 = torch.meshgrid(o, o, indexing="ij")
+            th = torch.as_tensor(grid.thetas(), dtype=torch.float64)[:, None, None]
+            a = D1 * torch.cos(th) + D2 * torch.sin(th)
+            b = -D1 * torch.sin(th) + D2 * torch.cos(th)
+            g = torch.exp(-a**2 / (2 * sc**2) - b**2 / (2 * 0.6**2))
+            g = g / g.sum(dim=(-2, -1), keepdim=True)
+            self.register_buffer("coarse", g[:, None].float())   # (K, 1, kh, kw)
+        s = math.sqrt(max(sigma_cells**2 - blur_cells**2, 0.0))
+        if s > 0.3:
+            rad = math.ceil(3 * s)
+            g = torch.exp(-torch.arange(-rad, rad + 1, dtype=torch.float32)**2 / (2 * s**2))
+            self.register_buffer("g", g / g.sum())
+        else:
+            self.g = None
+        self.register_buffer("w", torch.ones(()))
+        self.w = self._unit_height(grid, blur_cells)
+
+    @torch.no_grad()
+    def _unit_height(self, grid, blur):
+        K, n = grid.n_theta, grid.n
+        k0 = K // 4
+        th0 = grid.thetas()[k0]
+        x = torch.arange(n, dtype=torch.float32) - (n - 1) / 2
+        X1, X2 = torch.meshgrid(x, x, indexing="ij")
+        d = X1 * math.cos(th0) + X2 * math.sin(th0)
+        dk = (torch.arange(K) - k0 + K // 2) % K - K // 2
+        q = torch.exp(-dk.float()[:, None, None]**2 / (2 * blur**2) - d**2 / (2 * blur**2))
+        return self._blur(q[None, None])[0, 0, k0, n // 2, n // 2]
+
+    def _blur(self, q):
+        v = torch.einsum("bckij,lk->bclij", q, self.r.to(q.dtype))
+        if self.g is not None:
+            B, C, K, n1, n2 = v.shape
+            g = self.g.to(v.dtype)
+            p = len(g) // 2
+            x = v.reshape(B * C * K, 1, n1, n2)
+            x = F.conv2d(x, g.view(1, 1, -1, 1), padding=(p, 0))
+            x = F.conv2d(x, g.view(1, 1, 1, -1), padding=(0, p))
+            v = x.reshape(B, C, K, n1, n2)
+        if self.coarse is not None:
+            B, C, K, n1, n2 = v.shape
+            g = self.coarse.to(v.dtype)
+            x = v.reshape(B * C, K, n1, n2)
+            x = x - F.conv2d(x, g, padding=g.shape[-1] // 2, groups=K)
+            v = x.reshape(B, C, K, n1, n2).abs()
+        return v
+
+    def forward(self, q):
+        return self._blur(q) / self.w.to(q.dtype)
 
 
 class ForwardModelDiscrepancy(torch.nn.Module):

@@ -106,6 +106,38 @@ exploits (`loss/README.md`).
 across each kernel). Sparse-view data will need a separate analyzer that
 detects jumps in $s$ within each projection and is uninformative in $t$.
 
+## `image_analyzer.py`: full-aperture analyzer $W\,\mathrm{FBP}$
+
+`ImageDomainAnalyzer(grid, sigma_cells=1.5, aspect=2.0)` maps an image
+`(B,1,n,n)`, in practice the FBP of the data, to lifted coefficients
+`(B,1,K,n,n)` on $(\theta,x_1,x_2)$:
+$b(x,\theta_k)=|(W_k*\mathrm{FBP}\,y)(x)|$. Kernel $W_k$ differentiates along
+the normal $\omega(\theta_k)$ and smooths along the tangent, and it is
+normalized to unit response to a unit step.
+
+**Why.** $M$ resolves $t$ only to about $1/$`aspect`, because each kernel sees
+an angular window of only about ±17°. The position along a ray is fixed by
+*all* angles together, and that is exactly what back-projection combines.
+$W_k\,\mathrm{FBP}=R^*\,(\text{sinogram filters spanning all angles})$, so $b$
+is still a fixed linear map of $y$ followed by a modulus. Its response to an
+edge is local in $x$, so the tangent-line streaks of $C^{-1}c$ disappear.
+Learning-free ROC AUC on the 8 validation phantoms: **0.963** for $b$ vs.
+0.898 for $C^{-1}c$. On the walnut, $b$ traces the shell and the kernel
+outlines, whereas $C^{-1}c$ is dominated by line fans.
+
+`angular_response()` returns $r(\theta_k,\theta')$, the response to a straight
+step with normal $\theta'$. It is smooth, odd under
+$\theta'\mapsto\theta'+\pi$ and zero at 90°. It is computed with a
+cell-averaged step; a hard 0/1 step on the pixel grid makes it jagged. The
+orientation selectivity of derivative filters is broad (FWHM ≈ 90° at
+aspect 2), but this blur stays at the same $x$, and the Legendrian
+(horizontality) term of the prior ties $\theta$ to the direction of the
+curve.
+
+**Limitation:** this needs a good FBP, i.e. dense (or at least full-range)
+angles. For sparse or limited angles, the FBP has streak artefacts and the
+angular sampling would have to enter the forward model.
+
 ## `radon.py`: $R$
 
 `RayTransform(space, geometry)` wraps the ODL ray transform (ASTRA, GPU if

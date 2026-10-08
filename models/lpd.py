@@ -11,7 +11,11 @@ Adler & Oktem's LPD, the proximal steps are replaced by small CNNs and the
 operator by C (forward) and C^{-1} (back), all on the double covers:
 
     d_{i+1} = d_i + Gamma_i([d_i, C p_i, c])
-    p_{i+1} = p_i + Lambda_i([p_i, C^{-1} d_{i+1}])
+    p_{i+1} = p_i + Lambda_i([p_i, C^{-1} d_{i+1}(, b)])
+
+With ``image_input=True`` the primal CNNs also see the full-aperture
+image-side coefficients b = |W FBP y| (``operators/image_analyzer.py``),
+extended evenly to the double cover.
 
 Both CNNs are periodic in the fibre.  Working on the double covers avoids
 the reflection in the identification (s, phi + pi, t) ~ (-s, phi, -t)
@@ -23,10 +27,17 @@ dual CNNs are exactly equivariant under rotations by multiples of pi / K.
 
 Outputs (fields of shape (B, 1, K, n, n) on (theta, x1, x2)):
     a, b, c : the current tau = a X1 + c X2 + b X3, with a >= 0
-    J       : contrast in (0, J_max]
-    m       : membership 1 - exp(-a / a_ref)
+    q       : amplitude seen by the data term, q = a / a_ref
+    m       : membership 1 - exp(-a / a_ref), for display and thresholds
 where a_ref is the peak line density of a curve blurred over 2 cells, so a
-well-resolved curve has m ~ 0.6 on its centre line.
+well-resolved curve of unit edge strength has q ~ 1 and m ~ 0.6 on its
+centre line.  The data term is then convex in a (the forward models are
+linear in q), and a measures edge strength.
+
+With ``contrast=True`` (configurations before the change) the head also
+outputs a contrast J in (0, J_max] and q = J m.  J and a trade scale, and
+since the prior charges a but not J, a large J_max lets the network escape
+the prior.
 """
 
 import math
@@ -39,7 +50,8 @@ from torch.utils.checkpoint import checkpoint
 from geometry.lifted import LiftedGrid
 from operators.canonical_relation import CanonicalRelation
 
-from .layers import LiftedBlock, LiftedConv, s1_to_rp1_even, s1_to_rp1_odd, sinogram_rp1_to_s1
+from .layers import (LiftedBlock, LiftedConv, rp1_to_s1_even, s1_to_rp1_even, s1_to_rp1_odd,
+                     sinogram_rp1_to_s1)
 
 
 def reference_line_density(grid: LiftedGrid, cells: float = 2.0) -> float:
@@ -49,39 +61,70 @@ def reference_line_density(grid: LiftedGrid, cells: float = 2.0) -> float:
 
 class LiftedLPD(nn.Module):
     def __init__(self, grid: LiftedGrid, n_iter=5, n_primal=6, n_dual=6, hidden=24,
-                 J_max=1.0, use_checkpoint=True):
+                 J_max=1.0, use_checkpoint=True, image_input=False, contrast=False):
         super().__init__()
         self.grid, self.n_iter = grid, n_iter
         self.n_primal, self.n_dual = n_primal, n_dual
         self.J_max, self.use_checkpoint = J_max, use_checkpoint
+        self.image_input, self.contrast = image_input, contrast
         self.a_ref = reference_line_density(grid)
         self.C = CanonicalRelation(grid, double_cover=True)
         self.dual = nn.ModuleList(LiftedBlock(n_dual, n_primal + 1, hidden)
                                   for _ in range(n_iter))
-        self.primal = nn.ModuleList(LiftedBlock(n_primal, n_dual, hidden)
+        self.primal = nn.ModuleList(LiftedBlock(n_primal, n_dual + int(image_input), hidden)
                                     for _ in range(n_iter))
         self.head = nn.Sequential(LiftedConv(n_primal, hidden), nn.PReLU(hidden),
-                                  LiftedConv(hidden, 4))
+                                  LiftedConv(hidden, 4 if contrast else 3))
 
-    def _iteration(self, i, p, d, c):
+    def _iteration(self, i, p, d, c, b):
         d = self.dual[i](d, torch.cat([self.C(p), c], dim=1))
-        p = self.primal[i](p, self.C.inverse(d))
+        back = self.C.inverse(d)
+        p = self.primal[i](p, back if b is None else torch.cat([back, b], dim=1))
         return p, d
 
-    def forward(self, c: torch.Tensor) -> dict:
-        """c: normalized coefficient magnitudes (B, 1, K, n, n) on (phi, s, t), phi in [0, pi)."""
-        B, _, K, n, _ = c.shape
-        c = sinogram_rp1_to_s1(c)
-        p = c.new_zeros(B, self.n_primal, 2 * K, n, n)
-        d = c.new_zeros(B, self.n_dual, 2 * K, n, n)
-        for i in range(self.n_iter):
-            if self.use_checkpoint and self.training:
-                p, d = checkpoint(self._iteration, i, p, d, c, use_reentrant=False)
-            else:
-                p, d = self._iteration(i, p, d, c)
+    def readout(self, p: torch.Tensor) -> dict:
+        """Output head: primal state on the double cover -> fields on RP^1."""
         out = self.head(p)
         a = self.a_ref * F.softplus(s1_to_rp1_even(out[:, 0:1]))
         b = self.a_ref * s1_to_rp1_odd(out[:, 1:2])
         cn = self.a_ref * s1_to_rp1_even(out[:, 2:3])
-        J = self.J_max * torch.sigmoid(s1_to_rp1_even(out[:, 3:4]))
-        return {"a": a, "b": b, "c": cn, "J": J, "m": 1 - torch.exp(-a / self.a_ref)}
+        res = {"a": a, "b": b, "c": cn, "m": 1 - torch.exp(-a / self.a_ref)}
+        if self.contrast:
+            res["J"] = self.J_max * torch.sigmoid(s1_to_rp1_even(out[:, 3:4]))
+            res["q"] = res["J"] * res["m"]
+        else:
+            res["q"] = a / self.a_ref
+        return res
+
+    def forward(self, c: torch.Tensor, b: torch.Tensor = None, return_intermediates: bool = False) -> dict:
+        """c: normalized coefficient magnitudes (B, 1, K, n, n) on (phi, s, t), phi in [0, pi);
+        b: image-side coefficients (B, 1, K, n, n) on (theta, x1, x2), required
+        if and only if the model was built with ``image_input=True``.
+
+        With ``return_intermediates`` the output also contains, for each
+        iteration i, the primal state ``primal[i]`` (B, n_primal, 2K, n, n) on
+        (theta, x), the dual state ``dual[i]`` (B, n_dual, 2K, n, n) on
+        (phi, s, t), and ``readouts[i]``, the output head applied to primal[i]
+        (the estimate after i + 1 iterations; the last one is the output)."""
+        if (b is not None) != self.image_input:
+            raise ValueError("b must be given exactly when image_input=True")
+        B, _, K, n, _ = c.shape
+        c = sinogram_rp1_to_s1(c)
+        if b is not None:
+            b = rp1_to_s1_even(b)
+        p = c.new_zeros(B, self.n_primal, 2 * K, n, n)
+        d = c.new_zeros(B, self.n_dual, 2 * K, n, n)
+        primal, dual = [], []
+        for i in range(self.n_iter):
+            if self.use_checkpoint and self.training:
+                p, d = checkpoint(self._iteration, i, p, d, c, b, use_reentrant=False)
+            else:
+                p, d = self._iteration(i, p, d, c, b)
+            if return_intermediates:
+                primal.append(p.detach())
+                dual.append(d.detach())
+        out = self.readout(p)
+        if return_intermediates:
+            with torch.no_grad():
+                out.update(primal=primal, dual=dual, readouts=[self.readout(q) for q in primal])
+        return out
